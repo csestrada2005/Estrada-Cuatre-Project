@@ -1,4 +1,4 @@
-import type { FileSystemTree, DirectoryNode, FileNode } from '@webcontainer/api';
+import type { FileSystemTree } from '@webcontainer/api';
 
 export class AIOrchestrator {
   static async parseUserCommand(input: string, currentFileTree: FileSystemTree): Promise<FileSystemTree | null> {
