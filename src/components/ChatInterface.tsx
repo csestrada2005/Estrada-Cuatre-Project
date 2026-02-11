@@ -48,7 +48,7 @@ export function ChatInterface() {
   };
 
   return (
-    <div className="flex flex-col h-full w-[350px] bg-gray-900 border-r border-gray-800 flex-shrink-0">
+    <div className="flex flex-col h-full w-full bg-gray-900">
       <div className="p-4 border-b border-gray-800 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
           <Bot className="w-5 h-5 text-blue-400" />
