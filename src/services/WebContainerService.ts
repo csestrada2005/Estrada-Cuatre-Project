@@ -1,4 +1,5 @@
 import { WebContainer } from '@webcontainer/api';
+import type { FileSystemTree } from '@webcontainer/api';
 
 class WebContainerService {
   private static instance: WebContainerService;
@@ -42,6 +43,44 @@ class WebContainerService {
 
   public getContainer(): WebContainer | null {
     return this.webContainerInstance;
+  }
+
+  public async mount(fileTree: FileSystemTree) {
+    if (!this.webContainerInstance) throw new Error('WebContainer not booted');
+    await this.webContainerInstance.mount(fileTree);
+  }
+
+  public async installDependencies(callback?: (data: string) => void) {
+    if (!this.webContainerInstance) throw new Error('WebContainer not booted');
+    const installProcess = await this.webContainerInstance.spawn('npm', ['install']);
+
+    installProcess.output.pipeTo(new WritableStream({
+      write(data) {
+        console.log('[npm install]', data);
+        callback?.(data);
+      }
+    }));
+
+    return installProcess.exit;
+  }
+
+  public async startDevServer(callback?: (data: string) => void) {
+    if (!this.webContainerInstance) throw new Error('WebContainer not booted');
+    const devProcess = await this.webContainerInstance.spawn('npm', ['run', 'dev']);
+
+    devProcess.output.pipeTo(new WritableStream({
+      write(data) {
+        console.log('[dev server]', data);
+        callback?.(data);
+      }
+    }));
+
+    return devProcess;
+  }
+
+  public onServerReady(callback: (port: number, url: string) => void) {
+     if (!this.webContainerInstance) throw new Error('WebContainer not booted');
+     this.webContainerInstance.on('server-ready', callback);
   }
 }
 
