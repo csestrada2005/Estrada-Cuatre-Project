@@ -2,43 +2,8 @@ import { useEffect, useState, useRef } from 'react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
 import Editor from '@monaco-editor/react';
 import { useWebContainer } from './hooks/useWebContainer';
+import { files } from './files';
 import './App.css';
-
-const files = {
-  'index.js': {
-    file: {
-      contents: `
-const express = require('express');
-const app = express();
-const port = 3111;
-
-app.get('/', (req, res) => {
-  res.send('Welcome to a WebContainers app! 🥳');
-});
-
-app.listen(port, () => {
-  console.log(\`App is live at http://localhost:\${port}\`);
-});
-      `.trim(),
-    },
-  },
-  'package.json': {
-    file: {
-      contents: `
-{
-  "name": "example-app",
-  "dependencies": {
-    "express": "latest",
-    "nodemon": "latest"
-  },
-  "scripts": {
-    "start": "nodemon index.js"
-  }
-}
-      `.trim(),
-    },
-  },
-};
 
 function App() {
   const { container } = useWebContainer();
@@ -67,11 +32,11 @@ function App() {
         return;
       }
 
-      // 3. npm start
-      const startProcess = await container.spawn('npm', ['start']);
+      // 3. npm run dev
+      const startProcess = await container.spawn('npm', ['run', 'dev']);
       startProcess.output.pipeTo(new WritableStream({
         write(data) {
-          console.log('[start]', data);
+          console.log('[run dev]', data);
         }
       }));
 
@@ -92,7 +57,7 @@ function App() {
           <Editor
             height="100%"
             defaultLanguage="javascript"
-            defaultValue={files['index.js'].file.contents}
+            defaultValue={(files['src'] as any).directory['App.tsx'].file.contents}
             theme="vs-dark"
             options={{ minimap: { enabled: false } }}
           />
