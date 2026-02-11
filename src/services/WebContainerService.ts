@@ -82,6 +82,11 @@ class WebContainerService {
      if (!this.webContainerInstance) throw new Error('WebContainer not booted');
      this.webContainerInstance.on('server-ready', callback);
   }
+
+  public async writeFile(path: string, content: string) {
+    if (!this.webContainerInstance) throw new Error('WebContainer not booted');
+    await this.webContainerInstance.fs.writeFile(path, content);
+  }
 }
 
 export const webContainerService = WebContainerService.getInstance();
