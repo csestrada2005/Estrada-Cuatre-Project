@@ -10,7 +10,7 @@ interface Message {
 }
 
 interface ChatInterfaceProps {
-  onCodeUpdate?: (files: FileSystemTree) => void;
+  onCodeUpdate: (files: FileSystemTree) => void;
 }
 
 export function ChatInterface({ onCodeUpdate }: ChatInterfaceProps) {
@@ -42,7 +42,7 @@ export function ChatInterface({ onCodeUpdate }: ChatInterfaceProps) {
 
       if (result) {
         console.log('AI generated new file tree:', result);
-        onCodeUpdate?.(result);
+        onCodeUpdate(result);
       }
 
       setMessages(prev => [
