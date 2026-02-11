@@ -1,17 +1,49 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
 import Editor from '@monaco-editor/react';
 import { webContainerService } from './services/WebContainerService';
+import { files } from './files';
 import './App.css';
 
 function App() {
   const [booted, setBooted] = useState(false);
+  const [url, setUrl] = useState('');
+  const initialized = useRef(false);
 
   useEffect(() => {
-    webContainerService.boot().then(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
+    const start = async () => {
+      await webContainerService.boot();
       setBooted(true);
       console.log('WebContainer initialized');
-    });
+
+      await webContainerService.mount(files);
+      console.log('Files mounted');
+
+      const exitCode = await webContainerService.installDependencies((data) => {
+         console.log(data);
+      });
+      console.log('Dependencies installed, exit code:', exitCode);
+
+      if (exitCode !== 0) {
+          console.error('Installation failed');
+          return;
+      }
+
+      await webContainerService.startDevServer((data) => {
+          console.log(data);
+      });
+      console.log('Dev server started');
+
+      webContainerService.onServerReady((port, url) => {
+        console.log('Server ready:', url);
+        setUrl(url);
+      });
+    };
+
+    start();
   }, []);
 
   return (
@@ -32,9 +64,11 @@ function App() {
         <Separator style={{ width: '5px', background: '#444', cursor: 'col-resize' }} />
         <Panel defaultSize={50} minSize={20}>
            <div style={{ width: '100%', height: '100%', background: '#fff', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '5px', background: '#eee', borderBottom: '1px solid #ccc', color: '#333', flexShrink: 0 }}>Preview</div>
+            <div style={{ padding: '5px', background: '#eee', borderBottom: '1px solid #ccc', color: '#333', flexShrink: 0 }}>
+                Preview {url ? `(${url})` : ''}
+            </div>
             <iframe
-                src="about:blank"
+                src={url || 'about:blank'}
                 style={{ flex: 1, width: '100%', border: 'none' }}
                 title="Preview"
             />
