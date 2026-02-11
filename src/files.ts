@@ -14,8 +14,38 @@ export const files: FileSystemTree = {
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/preview-client.js"></script>
   </body>
 </html>
+      `.trim(),
+    },
+  },
+  'preview-client.js': {
+    file: {
+      contents: `
+window.addEventListener('message', (event) => {
+  if (event.data.type === 'get-element') {
+    const { x, y } = event.data;
+    const element = document.elementFromPoint(x, y);
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      window.parent.postMessage({
+        type: 'element-selected',
+        payload: {
+          tagName: element.tagName.toLowerCase(),
+          className: element.className,
+          textContent: element.textContent?.slice(0, 50),
+          rect: {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+          }
+        }
+      }, '*');
+    }
+  }
+});
       `.trim(),
     },
   },
