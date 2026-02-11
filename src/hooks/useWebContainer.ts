@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { WebContainer } from '@webcontainer/api';
+import { webContainerService } from '../services/WebContainerService';
 
 export function useWebContainer() {
   const [container, setContainer] = useState<WebContainer | null>(null);
@@ -13,7 +14,8 @@ export function useWebContainer() {
 
     const boot = async () => {
       try {
-        const instance = await WebContainer.boot();
+        await webContainerService.boot();
+        const instance = webContainerService.getContainer();
         setContainer(instance);
         setIsLoading(false);
       } catch (err) {
