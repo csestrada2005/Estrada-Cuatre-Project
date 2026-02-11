@@ -2,13 +2,18 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, Loader2 } from 'lucide-react';
 import { AIOrchestrator } from '../services/AIOrchestrator';
 import { files } from '../files';
+import type { FileSystemTree } from '@webcontainer/api';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
 }
 
-export function ChatInterface() {
+interface ChatInterfaceProps {
+  onCodeUpdate?: (files: FileSystemTree) => void;
+}
+
+export function ChatInterface({ onCodeUpdate }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: 'Hello! How can I help you today?' }
   ]);
@@ -37,7 +42,7 @@ export function ChatInterface() {
 
       if (result) {
         console.log('AI generated new file tree:', result);
-        // TODO: Implement onCodeUpdate prop to pass the new file tree to App.tsx
+        onCodeUpdate?.(result);
       }
 
       setMessages(prev => [

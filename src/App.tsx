@@ -5,11 +5,59 @@ import { useWebContainer } from './hooks/useWebContainer';
 import { files } from './files';
 import './App.css';
 import { ChatInterface } from './components/ChatInterface';
+import type { FileSystemTree } from '@webcontainer/api';
+import { webContainerService } from './services/WebContainerService';
 
 function App() {
   const { container } = useWebContainer();
   const [url, setUrl] = useState('');
+  const [fileTree, setFileTree] = useState<FileSystemTree>(files);
   const initialized = useRef(false);
+
+  const handleCodeUpdate = async (newTree: FileSystemTree) => {
+    setFileTree(newTree);
+    if (container) {
+      await webContainerService.mount(newTree);
+    }
+  };
+
+  const getAppContent = () => {
+    const src = fileTree['src'];
+    if (src && 'directory' in src) {
+      const app = src.directory['App.tsx'];
+      if (app && 'file' in app) {
+        if ('contents' in app.file) {
+          return typeof app.file.contents === 'string'
+            ? app.file.contents
+            : new TextDecoder().decode(app.file.contents);
+        }
+      }
+    }
+    return '';
+  };
+
+  const handleEditorChange = (value: string | undefined) => {
+    if (value === undefined) return;
+
+    setFileTree(prev => {
+      const newTree = { ...prev };
+      const srcNode = newTree['src'];
+
+      if (srcNode && 'directory' in srcNode) {
+        newTree['src'] = {
+            directory: {
+                ...srcNode.directory,
+                'App.tsx': {
+                    file: {
+                        contents: value
+                    }
+                }
+            }
+        };
+      }
+      return newTree;
+    });
+  };
 
   useEffect(() => {
     if (!container || initialized.current) return;
@@ -17,7 +65,7 @@ function App() {
 
     const start = async () => {
       // 1. Mount files
-      await container.mount(files);
+      await container.mount(fileTree);
 
       // 2. npm install
       const installProcess = await container.spawn('npm', ['install']);
@@ -55,14 +103,15 @@ function App() {
     <div className="flex h-screen w-screen bg-gray-900 text-white overflow-hidden">
       <Group orientation="horizontal" className="flex-1">
         <Panel defaultSize={20} minSize={10}>
-          <ChatInterface />
+          <ChatInterface onCodeUpdate={handleCodeUpdate} />
         </Panel>
         <Separator className="w-1 bg-gray-800 hover:bg-blue-500 transition-colors cursor-col-resize" />
         <Panel defaultSize={40} minSize={20}>
           <Editor
             height="100%"
             defaultLanguage="javascript"
-            defaultValue={(files['src'] as any).directory['App.tsx'].file.contents}
+            value={getAppContent()}
+            onChange={handleEditorChange}
             theme="vs-dark"
             options={{ minimap: { enabled: false } }}
           />
