@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, Loader2 } from 'lucide-react';
+import { AIOrchestrator } from '../services/AIOrchestrator';
+import { files } from '../files';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -30,14 +32,27 @@ export function ChatInterface() {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsThinking(true);
 
-    // Simulate network delay
-    setTimeout(() => {
+    try {
+      const result = await AIOrchestrator.parseUserCommand(userMessage, files);
+
+      if (result) {
+        console.log('AI generated new file tree:', result);
+        // TODO: Implement onCodeUpdate prop to pass the new file tree to App.tsx
+      }
+
       setMessages(prev => [
         ...prev,
         { role: 'assistant', content: `I received your request: ${userMessage}` }
       ]);
+    } catch (error) {
+      console.error('Error processing command:', error);
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: `Sorry, something went wrong processing your request.` }
+      ]);
+    } finally {
       setIsThinking(false);
-    }, 1000);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
