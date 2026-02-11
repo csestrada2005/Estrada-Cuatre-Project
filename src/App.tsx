@@ -32,19 +32,19 @@ function App() {
         return;
       }
 
-      // 3. npm run dev
+      // 3. Listen for server-ready
+      container.on('server-ready', (_port, url) => {
+        console.log('Server ready:', url);
+        setUrl(url);
+      });
+
+      // 4. npm run dev
       const startProcess = await container.spawn('npm', ['run', 'dev']);
       startProcess.output.pipeTo(new WritableStream({
         write(data) {
           console.log('[run dev]', data);
         }
       }));
-
-      // 4. Listen for server-ready
-      container.on('server-ready', (_port, url) => {
-        console.log('Server ready:', url);
-        setUrl(url);
-      });
     };
 
     start();
@@ -76,8 +76,9 @@ function App() {
                   title="Preview"
                 />
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#666' }}>
-                  Loading...
+                <div className="loader-container">
+                  <div className="spinner"></div>
+                  <div>Loading...</div>
                 </div>
               )}
             </div>
