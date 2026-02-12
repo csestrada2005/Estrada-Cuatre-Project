@@ -12,7 +12,13 @@ function App() {
   const { container } = useWebContainer();
   const [url, setUrl] = useState('');
   const [fileTree, setFileTree] = useState<FileSystemTree>(files);
+  const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const initialized = useRef(false);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [terminalOutput]);
 
   const handleCodeUpdate = async (newTree: FileSystemTree) => {
     setFileTree(newTree);
@@ -72,6 +78,7 @@ function App() {
       installProcess.output.pipeTo(new WritableStream({
         write(data) {
           console.log('[install]', data);
+          setTerminalOutput(prev => [...prev, data]);
         }
       }));
 
@@ -92,6 +99,7 @@ function App() {
       startProcess.output.pipeTo(new WritableStream({
         write(data) {
           console.log('[run dev]', data);
+          setTerminalOutput(prev => [...prev, data]);
         }
       }));
     };
@@ -107,14 +115,30 @@ function App() {
         </Panel>
         <Separator className="w-1 bg-gray-800 hover:bg-blue-500 transition-colors cursor-col-resize" />
         <Panel defaultSize={40} minSize={20}>
-          <Editor
-            height="100%"
-            defaultLanguage="javascript"
-            value={getAppContent()}
-            onChange={handleEditorChange}
-            theme="vs-dark"
-            options={{ minimap: { enabled: false } }}
-          />
+          <Group orientation="vertical">
+            <Panel defaultSize={70} minSize={20}>
+              <Editor
+                height="100%"
+                defaultLanguage="javascript"
+                value={getAppContent()}
+                onChange={handleEditorChange}
+                theme="vs-dark"
+                options={{ minimap: { enabled: false } }}
+              />
+            </Panel>
+            <Separator className="h-1 bg-gray-800 hover:bg-blue-500 transition-colors cursor-row-resize" />
+            <Panel defaultSize={30} minSize={20}>
+              <div className="h-full flex flex-col bg-black text-white p-2 overflow-hidden">
+                <div className="font-bold border-b border-gray-700 pb-1 mb-1">Terminal Output</div>
+                <div className="flex-1 overflow-y-auto font-mono text-sm whitespace-pre-wrap">
+                  {terminalOutput.map((line, i) => (
+                    <span key={i}>{line}</span>
+                  ))}
+                  <div ref={terminalEndRef} />
+                </div>
+              </div>
+            </Panel>
+          </Group>
         </Panel>
         <Separator className="w-1 bg-gray-800 hover:bg-blue-500 transition-colors cursor-col-resize" />
         <Panel defaultSize={40} minSize={20}>
