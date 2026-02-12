@@ -10,7 +10,7 @@ interface Message {
 }
 
 interface ChatInterfaceProps {
-  onCodeUpdate: (files: FileSystemTree) => void;
+  onCodeUpdate: (tree: FileSystemTree) => void;
 }
 
 export function ChatInterface({ onCodeUpdate }: ChatInterfaceProps) {
