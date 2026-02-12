@@ -1,7 +1,7 @@
 import { useEffect, useState, type RefObject } from 'react';
 
 interface PreviewOverlayProps {
-  iframeRef: RefObject<HTMLIFrameElement>;
+  iframeRef: RefObject<HTMLIFrameElement | null>;
 }
 
 interface HighlightRect {
