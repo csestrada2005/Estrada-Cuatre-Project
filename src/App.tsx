@@ -5,6 +5,7 @@ import { useWebContainer } from './hooks/useWebContainer';
 import { files } from './files';
 import './App.css';
 import { ChatInterface } from './components/ChatInterface';
+import { PreviewOverlay } from './components/PreviewOverlay';
 import type { FileSystemTree } from '@webcontainer/api';
 import { webContainerService } from './services/WebContainerService';
 
@@ -15,6 +16,7 @@ function App() {
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const initialized = useRef(false);
   const terminalEndRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -148,11 +150,15 @@ function App() {
             </div>
             <div className="flex-1 relative w-full">
               {url ? (
-                <iframe
-                  src={url}
-                  className="w-full h-full border-none"
-                  title="Preview"
-                />
+                <>
+                  <iframe
+                    ref={iframeRef}
+                    src={url}
+                    className="w-full h-full border-none"
+                    title="Preview"
+                  />
+                  <PreviewOverlay iframeRef={iframeRef} />
+                </>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4">
                   <div className="spinner"></div>
