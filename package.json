@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "start": "node server.js",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -16,6 +17,7 @@
     "@babel/types": "^7.29.0",
     "@monaco-editor/react": "^4.7.0",
     "@webcontainer/api": "^1.6.1",
+    "express": "^4.22.1",
     "lucide-react": "^0.563.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
