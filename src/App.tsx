@@ -8,6 +8,7 @@ import { ChatInterface } from './components/ChatInterface';
 import { PreviewOverlay } from './components/PreviewOverlay';
 import type { FileSystemTree } from '@webcontainer/api';
 import { webContainerService } from './services/WebContainerService';
+import { locateElement } from './utils/ast';
 
 function App() {
   const { container } = useWebContainer();
@@ -17,13 +18,21 @@ function App() {
   const initialized = useRef(false);
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const editorRef = useRef<any>(null);
 
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [terminalOutput]);
 
   const handleElementSelect = (element: { tagName: string; className?: string }) => {
-    console.log('Element selected:', element);
+    const code = getAppContent();
+    const location = locateElement(code, element);
+
+    if (location && editorRef.current) {
+      editorRef.current.revealLineInCenter(location.line);
+      editorRef.current.setPosition({ lineNumber: location.line, column: location.column + 1 });
+      editorRef.current.focus();
+    }
   };
 
   const handleCodeUpdate = async (newTree: FileSystemTree) => {
@@ -128,6 +137,7 @@ function App() {
                 defaultLanguage="javascript"
                 value={getAppContent()}
                 onChange={handleEditorChange}
+                onMount={(editor) => (editorRef.current = editor)}
                 theme="vs-dark"
                 options={{ minimap: { enabled: false } }}
               />
