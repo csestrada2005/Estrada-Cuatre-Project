@@ -22,6 +22,10 @@ function App() {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [terminalOutput]);
 
+  const handleElementSelect = (element: { tagName: string; className?: string }) => {
+    console.log('Element selected:', element);
+  };
+
   const handleCodeUpdate = async (newTree: FileSystemTree) => {
     setFileTree(newTree);
     if (container) {
@@ -157,7 +161,7 @@ function App() {
                     className="w-full h-full border-none"
                     title="Preview"
                   />
-                  <PreviewOverlay iframeRef={iframeRef} />
+                  <PreviewOverlay iframeRef={iframeRef} onElementSelect={handleElementSelect} />
                 </>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4">

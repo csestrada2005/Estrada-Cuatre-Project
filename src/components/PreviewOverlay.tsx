@@ -1,7 +1,13 @@
 import { useEffect, useState, type RefObject } from 'react';
 
+interface ElementInfo {
+  tagName: string;
+  className?: string;
+}
+
 interface PreviewOverlayProps {
   iframeRef: RefObject<HTMLIFrameElement | null>;
+  onElementSelect: (element: ElementInfo) => void;
 }
 
 interface HighlightRect {
@@ -11,15 +17,18 @@ interface HighlightRect {
   height: number;
 }
 
-export function PreviewOverlay({ iframeRef }: PreviewOverlayProps) {
+export function PreviewOverlay({ iframeRef, onElementSelect }: PreviewOverlayProps) {
   const [highlightRect, setHighlightRect] = useState<HighlightRect | null>(null);
-  const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'element-selected') {
         setHighlightRect(event.data.rect);
-        setSelectedElement(event.data.tagName);
+        setSelectedElement({
+          tagName: event.data.tagName,
+          className: event.data.className
+        });
       }
     };
 
@@ -42,11 +51,19 @@ export function PreviewOverlay({ iframeRef }: PreviewOverlayProps) {
     setSelectedElement(null);
   };
 
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (selectedElement) {
+      onElementSelect(selectedElement);
+    }
+  };
+
   return (
     <div
       className="absolute inset-0 z-50 pointer-events-auto"
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
     >
       {highlightRect && (
         <div
@@ -60,7 +77,7 @@ export function PreviewOverlay({ iframeRef }: PreviewOverlayProps) {
         >
           {selectedElement && (
             <div className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-1.5 py-0.5 rounded shadow-sm font-mono whitespace-nowrap z-10">
-              {selectedElement}
+              {selectedElement.tagName}
             </div>
           )}
         </div>
