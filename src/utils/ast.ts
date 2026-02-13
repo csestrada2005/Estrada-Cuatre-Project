@@ -94,3 +94,72 @@ export const updateCode = (code: string, target: TargetElement, update: ElementU
         return code;
     }
 };
+
+export const locateElement = (code: string, target: TargetElement): { line: number; column: number } | null => {
+    try {
+        const ast = parse(code, {
+            sourceType: 'module',
+            plugins: ['jsx', 'typescript'],
+        });
+
+        // Handle inconsistent module exports in browser environments
+        const traverseFn = (traverse as any).default || traverse;
+
+        let foundLoc: { line: number; column: number } | null = null;
+
+        traverseFn(ast, {
+            JSXOpeningElement(path: any) {
+                if (foundLoc) return;
+
+                const openingElement = path.node;
+
+                // Match Tag Name
+                let tagName = '';
+                if (t.isJSXIdentifier(openingElement.name)) {
+                    tagName = openingElement.name.name;
+                } else {
+                   // Skip member expressions or namespaced names
+                   return;
+                }
+
+                if (tagName.toLowerCase() !== target.tagName.toLowerCase()) return;
+
+                // Match Class Name
+                if (target.className) {
+                    const classNameAttr = openingElement.attributes.find(
+                        (attr: any) => t.isJSXAttribute(attr) && attr.name.name === 'className'
+                    );
+
+                    let sourceClassName = '';
+                    if (classNameAttr && t.isStringLiteral(classNameAttr.value)) {
+                        sourceClassName = classNameAttr.value.value;
+                    }
+
+                    // Normalize classes for comparison
+                    const normalize = (cls: string) => cls.split(/\s+/).filter(Boolean).sort().join(' ');
+
+                    const targetClass = normalize(target.className);
+                    const sourceClass = normalize(sourceClassName);
+
+                    if (targetClass !== sourceClass) {
+                         return;
+                    }
+                }
+
+                if (openingElement.loc) {
+                    foundLoc = {
+                        line: openingElement.loc.start.line,
+                        column: openingElement.loc.start.column
+                    };
+                    path.stop();
+                }
+            }
+        });
+
+        return foundLoc;
+
+    } catch (error) {
+        console.error('Error locating element:', error);
+        return null;
+    }
+};
