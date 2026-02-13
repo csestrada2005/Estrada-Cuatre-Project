@@ -44,13 +44,9 @@ export function PreviewOverlay({ iframeRef }: PreviewOverlayProps) {
 
   return (
     <div
-      className="absolute inset-0 z-50"
+      className="absolute inset-0 z-50 pointer-events-auto"
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      // Note: The requirement asked for pointer-events: none on the layout,
-      // but also for an onMouseMove handler on this specific div.
-      // Since pointer-events: none prevents mouse events on the element,
-      // we must keep it interactive (pointer-events: auto) to capture mouse moves for the X-Ray logic.
     >
       {highlightRect && (
         <div
