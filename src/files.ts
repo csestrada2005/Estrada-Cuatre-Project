@@ -14,38 +14,9 @@ export const files: FileSystemTree = {
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script type="module" src="/preview-client.js"></script>
+    <script type="module" src="/src/preview-client.js"></script>
   </body>
 </html>
-      `.trim(),
-    },
-  },
-  'preview-client.js': {
-    file: {
-      contents: `
-window.addEventListener('message', (event) => {
-  if (event.data.type === 'get-element') {
-    const { x, y } = event.data;
-    const element = document.elementFromPoint(x, y);
-    if (element) {
-      const rect = element.getBoundingClientRect();
-      window.parent.postMessage({
-        type: 'element-selected',
-        payload: {
-          tagName: element.tagName.toLowerCase(),
-          className: element.className,
-          textContent: element.textContent?.slice(0, 50),
-          rect: {
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-          }
-        }
-      }, '*');
-    }
-  }
-});
       `.trim(),
     },
   },
@@ -107,6 +78,32 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <App />
   </React.StrictMode>,
 )
+          `.trim(),
+        },
+      },
+      'preview-client.js': {
+        file: {
+          contents: `
+window.addEventListener('message', (event) => {
+  if (event.data.type === 'get-element') {
+    // 1. Find the element at the X/Y coordinates
+    const element = document.elementFromPoint(event.data.x, event.data.y);
+    if (!element) return;
+        // 2. Get its dimensions
+        const rect = element.getBoundingClientRect();
+        // 3. Send back to the main app
+        window.parent.postMessage({
+          type: 'element-selected',
+          tagName: element.tagName.toLowerCase(),
+          rect: {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height
+          }
+        }, '*');
+      }
+    });
           `.trim(),
         },
       },
