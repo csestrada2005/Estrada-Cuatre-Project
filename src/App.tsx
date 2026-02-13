@@ -6,15 +6,17 @@ import { files } from './files';
 import './App.css';
 import { ChatInterface } from './components/ChatInterface';
 import { PreviewOverlay } from './components/PreviewOverlay';
+import { InspectorPanel } from './components/InspectorPanel';
 import type { FileSystemTree } from '@webcontainer/api';
 import { webContainerService } from './services/WebContainerService';
-import { locateElement } from './utils/ast';
+import { locateElement, updateCode, type TargetElement } from './utils/ast';
 
 function App() {
   const { container } = useWebContainer();
   const [url, setUrl] = useState('');
   const [fileTree, setFileTree] = useState<FileSystemTree>(files);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
+  const [selectedElement, setSelectedElement] = useState<TargetElement | null>(null);
   const initialized = useRef(false);
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -24,7 +26,8 @@ function App() {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [terminalOutput]);
 
-  const handleElementSelect = (element: { tagName: string; className?: string }) => {
+  const handleElementSelect = (element: TargetElement) => {
+    setSelectedElement(element);
     const code = getAppContent();
     const location = locateElement(code, element);
 
@@ -33,6 +36,37 @@ function App() {
       editorRef.current.setPosition({ lineNumber: location.line, column: location.column + 1 });
       editorRef.current.focus();
     }
+  };
+
+  const handleClassUpdate = async (newClassName: string) => {
+    if (!selectedElement) return;
+
+    const code = getAppContent();
+    const newCode = updateCode(code, selectedElement, { className: newClassName });
+
+    const newTree = { ...fileTree };
+    const srcNode = newTree['src'];
+
+    if (srcNode && 'directory' in srcNode) {
+      newTree['src'] = {
+        directory: {
+          ...srcNode.directory,
+          'App.tsx': {
+            file: {
+              contents: newCode
+            }
+          }
+        }
+      };
+    }
+
+    setFileTree(newTree);
+
+    if (container) {
+      await webContainerService.mount(newTree);
+    }
+
+    setSelectedElement(prev => prev ? { ...prev, className: newClassName } : null);
   };
 
   const handleCodeUpdate = async (newTree: FileSystemTree) => {
@@ -126,7 +160,15 @@ function App() {
     <div className="flex h-screen w-screen bg-gray-900 text-white overflow-hidden">
       <Group orientation="horizontal" className="flex-1">
         <Panel defaultSize={20} minSize={10}>
-          <ChatInterface onCodeUpdate={handleCodeUpdate} />
+          <Group orientation="vertical">
+            <Panel defaultSize={50} minSize={20}>
+              <ChatInterface onCodeUpdate={handleCodeUpdate} />
+            </Panel>
+            <Separator className="h-1 bg-gray-800 hover:bg-blue-500 transition-colors cursor-row-resize" />
+            <Panel defaultSize={50} minSize={20}>
+              <InspectorPanel selectedElement={selectedElement} onUpdateClass={handleClassUpdate} />
+            </Panel>
+          </Group>
         </Panel>
         <Separator className="w-1 bg-gray-800 hover:bg-blue-500 transition-colors cursor-col-resize" />
         <Panel defaultSize={40} minSize={20}>
