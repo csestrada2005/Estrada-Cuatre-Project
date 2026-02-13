@@ -95,6 +95,7 @@ window.addEventListener('message', (event) => {
         window.parent.postMessage({
           type: 'element-selected',
           tagName: element.tagName.toLowerCase(),
+          className: element.className,
           rect: {
             top: rect.top,
             left: rect.left,
