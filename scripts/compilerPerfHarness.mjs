@@ -23,8 +23,8 @@
  * abajo). ALIAS en sí no se modifica; se construye un objeto nuevo a partir
  * de él.
  *
- * lucideFacadePlugin (E13/E13b/E13c) vive SOLO en este harness — no se ha
- * portado a compiler.js.
+ * lucideFacadePlugin (E13/E13b/E13c) vive en server/compiler.js — este
+ * harness sólo lo importa, igual que el resto de plugins reales de arriba.
  *
  * La instrumentación interna que el harness usaba para desglosar el punto
  * R225 (vfs225Guard/vfs225FilesObj y el conteo de fs.statSync vía
@@ -115,42 +115,22 @@
  * estático real (@babel/parser, mismo parser que compiler.js:41 usa para
  * instrumentSource — NO regex)
  * ---------------------------------------------------------------------------
- * PASO PREVIO verificado (obligatorio antes de implementar, ver salida real
- * en el mensaje de la tarea): `ls node_modules/lucide-react/dist/esm/icons/`
- * confirma que cada icono vive en su PROPIO archivo, en kebab-case
- * (p.ej. heart.js, no Heart.js), y ese archivo exporta el icono como
- * `export { ..., Heart as default }` — es decir, DEFAULT export, no named.
- * El barrel (lucide-react.js) hace `export { default as Heart, default as
- * HeartIcon, default as LucideHeart } from './icons/heart.js'` por cada
- * icono, con hasta 3 alias por icono (nombre canónico, sufijo Icon, prefijo
- * Lucide) y algunos alias NO triviales por convención kebab (p.ej. Verified
- * → badge-check.js). Por eso la fachada NO deriva el nombre de archivo con
- * un kebab-case hecho a mano: parsea el barrel REAL una vez con
- * @babel/parser y construye un mapa nombre-exportado → './icons/xxx.js',
- * así cualquier alias que el barrel real reconozca, la fachada también lo
- * reconoce.
- *
- * lucideFacadePlugin(filesObj, exportMap):
- *   1. scanLucideImports() parsea CADA archivo de filesObj con
- *      @babel/parser (mismos plugins ['jsx','typescript'] que
- *      instrumentSource) y recoge, de cada ImportDeclaration cuyo
- *      source === 'lucide-react', los ImportSpecifier nombrados
- *      (import.imported.name). Si encuentra un ImportDefaultSpecifier
- *      (import default) o un ImportNamespaceSpecifier (import * as X),
- *      marca fail-safe inmediatamente con el motivo.
- *   2. Si no hubo fail-safe, cada specifier se busca en exportMap; si
- *      falta, o si el .js resuelto no existe en disco (fs.existsSync),
- *      fail-safe también.
- *   3. Si la fachada queda activa: el plugin registra onResolve para
- *      'lucide-react' → namespace propio, y onLoad de ese namespace genera
- *      `export { default as X } from "<ruta absoluta>/icons/x.js"` SOLO
- *      para los iconos detectados.
- *   4. Si fail-safe: el plugin NO registra ningún onResolve para
- *      'lucide-react' — esbuild cae a la resolución por defecto, que usa
- *      el ALIAS sin modificar (barrel completo), exactamente como E1.
- * runBuild() acepta ahora `options.extraPlugins` (array, prependeado a la
- * lista de plugins) para inyectar este plugin sin tocar la firma de las
- * demás llamadas.
+ * lucideFacadePlugin(filesObj) vive ahora en server/compiler.js (portado sin
+ * cambios de lógica) y se importa aquí igual que routerShimPlugin/
+ * virtualFilesPlugin/esmShResolverPlugin. Internamente: parsea el barrel real
+ * de lucide-react con @babel/parser para construir el mapa nombre-exportado →
+ * './icons/xxx.js' (cubre alias no triviales como Verified → badge-check.js),
+ * escanea filesObj en busca de imports nombrados de 'lucide-react', y si todo
+ * resuelve a un archivo real en disco genera un módulo de reexports servido
+ * por su propio namespace (con su propio onResolve para que
+ * esmShResolverPlugin no capture esos reexports internos). Devuelve
+ * { plugin, active, failSafeReason, specifiers, resolvedIconCount }.
+ * FAIL-SAFE (import default, `import * as X`, o icono sin archivo en disco):
+ * el plugin no registra ningún onResolve para 'lucide-react' y esbuild cae al
+ * ALIAS sin modificar (barrel completo), exactamente como E1.
+ * runBuild() acepta `options.extraPlugins` (array, prependeado a la lista de
+ * plugins) para inyectar este plugin sin tocar la firma de las demás
+ * llamadas.
  *
  * EJECUCIÓN:  node scripts/compilerPerfHarness.mjs
  */
@@ -168,8 +148,8 @@ import {
   routerShimPlugin,
   virtualFilesPlugin,
   esmShResolverPlugin,
+  lucideFacadePlugin,
 } from '../server/compiler.js';
-import * as babelParser from '@babel/parser'; // v5 — E13, mismo parser que compiler.js:41 usa para instrumentSource
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..');
@@ -223,117 +203,9 @@ function harnessExtraAliasResolverPlugin() {
 
 // ===========================================================================
 // v5 — E13: fachada de lucide-react por análisis estático real.
+// lucideFacadePlugin(filesObj) es ahora el real, importado de
+// server/compiler.js — ya no hay copia local aquí.
 // ===========================================================================
-const LUCIDE_ICONS_DIR = new URL('../node_modules/lucide-react/dist/esm/icons/', import.meta.url).pathname;
-const LUCIDE_BARREL_PATH = ALIAS['lucide-react'];
-const BABEL_PARSE_OPTS = { sourceType: 'module', plugins: ['jsx', 'typescript'], errorRecovery: false };
-
-// Parsea el barrel REAL una vez (@babel/parser, no regex) y construye
-// nombre-exportado → './icons/xxx.js' leyendo cada
-// `export { default as X, ... } from './icons/xxx.js'`.
-function buildLucideExportMap() {
-  const barrelSrc = fs.readFileSync(LUCIDE_BARREL_PATH, 'utf8');
-  const ast = babelParser.parse(barrelSrc, BABEL_PARSE_OPTS);
-  const map = new Map();
-  for (const node of ast.program.body) {
-    if (node.type !== 'ExportNamedDeclaration' || !node.source) continue;
-    const src = node.source.value;
-    if (!src.startsWith('./icons/')) continue;
-    for (const spec of node.specifiers) {
-      if (spec.type !== 'ExportSpecifier') continue;
-      const exportedName = spec.exported.name ?? spec.exported.value;
-      map.set(exportedName, src);
-    }
-  }
-  return map;
-}
-
-// Escanea filesObj con @babel/parser y devuelve los specifiers nombrados de
-// TODOS los `import { ... } from 'lucide-react'`, más el motivo de
-// fail-safe si aparece un import default o `import * as X`.
-function scanLucideImports(filesObj) {
-  const specifiers = new Set();
-  let failSafeReason = null;
-
-  for (const [filePath, source] of Object.entries(filesObj)) {
-    if (!/\.(tsx|jsx|ts|js)$/.test(filePath)) continue;
-    let ast;
-    try {
-      ast = babelParser.parse(source, BABEL_PARSE_OPTS);
-    } catch {
-      continue; // el error de parseo real, si lo hay, lo reporta el build principal
-    }
-    for (const node of ast.program.body) {
-      if (node.type !== 'ImportDeclaration' || node.source.value !== 'lucide-react') continue;
-      if (node.importKind === 'type') continue; // import type { ... } no genera binding en runtime
-      for (const spec of node.specifiers) {
-        if (spec.type === 'ImportSpecifier') {
-          if (spec.importKind === 'type') continue;
-          specifiers.add(spec.imported.name ?? spec.imported.value);
-        } else if (spec.type === 'ImportDefaultSpecifier') {
-          failSafeReason = failSafeReason ?? `import default de 'lucide-react' en ${filePath}`;
-        } else if (spec.type === 'ImportNamespaceSpecifier') {
-          failSafeReason = failSafeReason ?? `import * as ... de 'lucide-react' en ${filePath}`;
-        }
-      }
-    }
-  }
-
-  return { specifiers: [...specifiers], failSafeReason };
-}
-
-// Construye el plugin de fachada para UN filesObj concreto. Devuelve tanto
-// el plugin (para pasar a runBuild vía options.extraPlugins) como el
-// diagnóstico (active/failSafeReason/specifiers) para reportarlo en cada
-// corrida sin tener que re-derivarlo del resultado del build.
-function makeLucideFacadePlugin(filesObj, exportMap) {
-  const { specifiers, failSafeReason: importFailSafeReason } = scanLucideImports(filesObj);
-  let failSafeReason = importFailSafeReason;
-  const resolvedIcons = [];
-
-  if (!failSafeReason) {
-    for (const name of specifiers) {
-      const relPath = exportMap.get(name);
-      if (!relPath) {
-        failSafeReason = `icono '${name}' no está en el mapa de exports del barrel real de lucide-react`;
-        break;
-      }
-      const absPath = path.join(LUCIDE_ICONS_DIR, relPath.slice('./icons/'.length));
-      if (!fs.existsSync(absPath)) {
-        failSafeReason = `archivo de icono no existe en disco para '${name}': ${absPath}`;
-        break;
-      }
-      resolvedIcons.push({ name, absPath });
-    }
-  }
-
-  const active = failSafeReason === null;
-
-  const plugin = {
-    name: 'lucide-facade',
-    setup(build) {
-      if (!active) return; // fail-safe: no registra onResolve, esbuild cae al ALIAS (barrel completo)
-      build.onResolve({ filter: /^lucide-react$/ }, () => ({ path: 'lucide-react-facade', namespace: 'lucide-facade' }));
-      // Los `export { default as X } from "<ruta absoluta>"` DENTRO del módulo
-      // generado son rutas de disco ya resueltas — sin este onResolve,
-      // esmShResolverPlugin (que registra un onResolve /.*/ genérico más
-      // adelante en la cadena) las trataría como specifiers "no locales" y
-      // las mandaría a esm.sh. Al restringir por namespace:'lucide-facade'
-      // sólo se capturan resolves de imports que parten del propio módulo
-      // generado, forzando la carga normal de archivo.
-      build.onResolve({ filter: /.*/, namespace: 'lucide-facade' }, args => ({ path: args.path }));
-      build.onLoad({ filter: /.*/, namespace: 'lucide-facade' }, () => {
-        const contents = resolvedIcons
-          .map(({ name, absPath }) => `export { default as ${name} } from ${JSON.stringify(absPath)};`)
-          .join('\n');
-        return { contents, loader: 'js', resolveDir: REPO_ROOT };
-      });
-    }
-  };
-
-  return { plugin, active, failSafeReason, specifiers, resolvedIconCount: resolvedIcons.length };
-}
-
 function printFacadeStatus(scenarioId, runIdx, facade) {
   console.log(`${scenarioId} run${runIdx} fachada_lucide: activa=${facade.active} ` +
     `specifiers=[${facade.specifiers.join(', ')}] iconos_resueltos=${facade.resolvedIconCount} ` +
@@ -1013,11 +885,9 @@ async function main() {
   // v5 — E13/E13b/E13c: fachada de lucide-react por análisis estático real.
   // ---------------------------------------------------------------------
   console.log('\n########## E13/E13b/E13c: FACHADA DE LUCIDE POR ANÁLISIS ESTÁTICO ##########');
-  const lucideExportMap = buildLucideExportMap();
-  console.log(`lucideExportMap: ${lucideExportMap.size} nombres exportados mapeados desde el barrel real`);
 
   // E13 — E1 con la fachada (mismo filesObj y alias que E1; sólo se añade el plugin)
-  const facadeE13 = makeLucideFacadePlugin(baselineFiles, lucideExportMap);
+  const facadeE13 = lucideFacadePlugin(baselineFiles);
   console.log(`\n--- E13: E1 con la fachada de lucide-react ---`);
   {
     const runs = [];
@@ -1063,7 +933,7 @@ async function main() {
   console.log(`\n--- E13c: fail-safe — 'import * as Icons' fuerza la caída al barrel ---`);
   const e13cFiles = makeFilesObj({ lucide: true, framer: true, supabase: true, chainLength: 0 });
   e13cFiles['src/App.tsx'] = `import * as Icons from 'lucide-react';\n${e13cFiles['src/App.tsx']}`;
-  const facadeE13c = makeLucideFacadePlugin(e13cFiles, lucideExportMap);
+  const facadeE13c = lucideFacadePlugin(e13cFiles);
   {
     const runs = [];
     for (let i = 1; i <= 3; i++) {

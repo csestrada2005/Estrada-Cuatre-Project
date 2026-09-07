@@ -535,6 +535,153 @@ function esmShResolverPlugin() {
   };
 }
 
+// ---------------------------------------------------------------------------
+// lucideFacadePlugin — fachada de lucide-react por análisis estático real.
+// Portado tal cual (sin cambios de lógica) de scripts/compilerPerfHarness.mjs
+// (E13/E13b/E13c), donde vivía como makeLucideFacadePlugin(filesObj, exportMap)
+// + buildLucideExportMap() + scanLucideImports() por separado. DEFINIDO PERO
+// NO ACTIVADO: compileFiles no lo invoca en este cambio.
+//
+// El barrel de lucide-react (ALIAS['lucide-react']) hace
+// `export { default as Heart, default as HeartIcon, ... } from './icons/heart.js'`
+// por icono, con hasta 3 alias por icono y algunos alias NO triviales por
+// convención kebab (p.ej. Verified → badge-check.js). Por eso el mapa
+// nombre-exportado → './icons/xxx.js' se construye parseando el barrel real
+// con @babel/parser (mismo parser que instrumentSource usa arriba) en vez de
+// derivar el nombre de archivo a mano — así cualquier alias que el barrel
+// real reconozca, la fachada también lo reconoce. El mapa se cachea a nivel
+// de módulo: el barrel no cambia entre compilaciones del mismo proceso.
+//
+// FAIL-SAFE: un import default o `import * as X` de 'lucide-react', o un
+// icono nombrado que no aparece en el mapa de exports o cuyo archivo no
+// existe en disco, abandona la fachada por completo — el plugin no registra
+// ningún onResolve para 'lucide-react' y esbuild cae al ALIAS actual (barrel
+// completo), exactamente como si el plugin no estuviera.
+// ---------------------------------------------------------------------------
+const LUCIDE_ICONS_DIR = new URL('../node_modules/lucide-react/dist/esm/icons/', import.meta.url).pathname;
+const LUCIDE_BARREL_PATH = ALIAS['lucide-react'];
+const LUCIDE_BABEL_PARSE_OPTS = { sourceType: 'module', plugins: ['jsx', 'typescript'], errorRecovery: false };
+
+let lucideExportMapCache = null;
+
+// Parsea el barrel REAL una vez (@babel/parser, no regex) y construye
+// nombre-exportado → './icons/xxx.js' leyendo cada
+// `export { default as X, ... } from './icons/xxx.js'`. Cacheado a nivel de
+// módulo: el barrel instalado no cambia durante la vida del proceso.
+function buildLucideExportMap() {
+  if (lucideExportMapCache) return lucideExportMapCache;
+  const barrelSrc = fs.readFileSync(LUCIDE_BARREL_PATH, 'utf8');
+  const ast = babelParser.parse(barrelSrc, LUCIDE_BABEL_PARSE_OPTS);
+  const map = new Map();
+  for (const node of ast.program.body) {
+    if (node.type !== 'ExportNamedDeclaration' || !node.source) continue;
+    const src = node.source.value;
+    if (!src.startsWith('./icons/')) continue;
+    for (const spec of node.specifiers) {
+      if (spec.type !== 'ExportSpecifier') continue;
+      const exportedName = spec.exported.name ?? spec.exported.value;
+      map.set(exportedName, src);
+    }
+  }
+  lucideExportMapCache = map;
+  return map;
+}
+
+// Escanea filesObj con @babel/parser y devuelve los specifiers nombrados de
+// TODOS los `import { ... } from 'lucide-react'`, más el motivo de fail-safe
+// si aparece un import default o `import * as X`.
+function scanLucideImports(filesObj) {
+  const specifiers = new Set();
+  let failSafeReason = null;
+
+  for (const [filePath, source] of Object.entries(filesObj)) {
+    if (!/\.(tsx|jsx|ts|js)$/.test(filePath)) continue;
+    let ast;
+    try {
+      ast = babelParser.parse(source, LUCIDE_BABEL_PARSE_OPTS);
+    } catch {
+      continue; // el error de parseo real, si lo hay, lo reporta el build principal
+    }
+    for (const node of ast.program.body) {
+      if (node.type !== 'ImportDeclaration' || node.source.value !== 'lucide-react') continue;
+      if (node.importKind === 'type') continue; // import type { ... } no genera binding en runtime
+      for (const spec of node.specifiers) {
+        if (spec.type === 'ImportSpecifier') {
+          if (spec.importKind === 'type') continue;
+          specifiers.add(spec.imported.name ?? spec.imported.value);
+        } else if (spec.type === 'ImportDefaultSpecifier') {
+          failSafeReason = failSafeReason ?? `import default de 'lucide-react' en ${filePath}`;
+        } else if (spec.type === 'ImportNamespaceSpecifier') {
+          failSafeReason = failSafeReason ?? `import * as ... de 'lucide-react' en ${filePath}`;
+        }
+      }
+    }
+  }
+
+  return { specifiers: [...specifiers], failSafeReason };
+}
+
+// Construye la fachada para UN filesObj concreto. Devuelve tanto el plugin
+// esbuild (name: 'lucide-facade') como el diagnóstico (active/failSafeReason/
+// specifiers/resolvedIconCount) que el LOG obligatorio de abajo usa y que
+// scripts/compilerPerfHarness.mjs también consume para su propio reporte.
+function lucideFacadePlugin(filesObj) {
+  const exportMap = buildLucideExportMap();
+  const { specifiers, failSafeReason: importFailSafeReason } = scanLucideImports(filesObj);
+  let failSafeReason = importFailSafeReason;
+  const resolvedIcons = [];
+
+  if (!failSafeReason) {
+    for (const name of specifiers) {
+      const relPath = exportMap.get(name);
+      if (!relPath) {
+        failSafeReason = `icono '${name}' no está en el mapa de exports del barrel real de lucide-react`;
+        break;
+      }
+      const absPath = path.join(LUCIDE_ICONS_DIR, relPath.slice('./icons/'.length));
+      if (!fs.existsSync(absPath)) {
+        failSafeReason = `archivo de icono no existe en disco para '${name}': ${absPath}`;
+        break;
+      }
+      resolvedIcons.push({ name, absPath });
+    }
+  }
+
+  const active = failSafeReason === null;
+
+  // LOG OBLIGATORIO — sin esto la degradación a fail-safe es muda y no se ve
+  // en los logs de Render.
+  if (active) {
+    console.log(`[compile] lucide-facade: ${resolvedIcons.length} iconos`);
+  } else {
+    console.log(`[compile] lucide-facade: FAIL-SAFE (${failSafeReason})`);
+  }
+
+  const plugin = {
+    name: 'lucide-facade',
+    setup(build) {
+      if (!active) return; // fail-safe: no registra onResolve, esbuild cae al ALIAS (barrel completo)
+      build.onResolve({ filter: /^lucide-react$/ }, () => ({ path: 'lucide-react-facade', namespace: 'lucide-facade' }));
+      // Los `export { default as X } from "<ruta absoluta>"` DENTRO del módulo
+      // generado son rutas de disco ya resueltas — sin este onResolve,
+      // esmShResolverPlugin (que registra un onResolve /.*/ genérico más
+      // adelante en la cadena) las trataría como specifiers "no locales" y las
+      // mandaría a esm.sh. Al restringir por namespace:'lucide-facade' sólo se
+      // capturan resolves de imports que parten del propio módulo generado,
+      // forzando la carga normal de archivo.
+      build.onResolve({ filter: /.*/, namespace: 'lucide-facade' }, args => ({ path: args.path }));
+      build.onLoad({ filter: /.*/, namespace: 'lucide-facade' }, () => {
+        const contents = resolvedIcons
+          .map(({ name, absPath }) => `export { default as ${name} } from ${JSON.stringify(absPath)};`)
+          .join('\n');
+        return { contents, loader: 'js', resolveDir: process.cwd() };
+      });
+    }
+  };
+
+  return { plugin, active, failSafeReason, specifiers, resolvedIconCount: resolvedIcons.length };
+}
+
 // CAMBIO 1 — Captura de errores PRE-BUNDLE.
 //
 // Este script se inyecta como PRIMER <script> del <head>, antes incluso del
@@ -809,7 +956,7 @@ export { generateHTML, PREVIEW_ERROR_CAPTURE_SCRIPT, PREVIEW_CLIENT_SCRIPT, inst
 
 // Exportados para que scripts/compilerPerfHarness.mjs mida el compilador real
 // en vez de copias locales.
-export { NODE_BUILTINS, ALIAS, routerShimPlugin, virtualFilesPlugin, esmShResolverPlugin };
+export { NODE_BUILTINS, ALIAS, routerShimPlugin, virtualFilesPlugin, esmShResolverPlugin, lucideFacadePlugin };
 
 function generateErrorHTML(message, details) {
   const safeMessage = escapeHtml(message || 'Unknown compile error');
