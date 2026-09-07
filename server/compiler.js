@@ -807,6 +807,10 @@ ${PREVIEW_CLIENT_SCRIPT}
 // y el transform de instrumentación data-oid).
 export { generateHTML, PREVIEW_ERROR_CAPTURE_SCRIPT, PREVIEW_CLIENT_SCRIPT, instrumentSource, fileSlugFor };
 
+// Exportados para que scripts/compilerPerfHarness.mjs mida el compilador real
+// en vez de copias locales.
+export { NODE_BUILTINS, ALIAS, routerShimPlugin, virtualFilesPlugin, esmShResolverPlugin };
+
 function generateErrorHTML(message, details) {
   const safeMessage = escapeHtml(message || 'Unknown compile error');
   const safeDetails = escapeHtml(JSON.stringify(details || {}, null, 2));
