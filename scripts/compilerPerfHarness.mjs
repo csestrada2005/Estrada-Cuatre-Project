@@ -195,6 +195,33 @@ const ALIAS_EXTRA_SOLO_HARNESS = {
 const ALIAS = { ...REAL_ALIAS, ...ALIAS_EXTRA_SOLO_HARNESS };
 
 // ===========================================================================
+// harnessExtraAliasResolverPlugin — SOLO HARNESS. Pasar ALIAS_EXTRA_SOLO_HARNESS
+// dentro de la opción `alias` de esbuild.build() NO basta: esmShResolverPlugin
+// es ahora el real, importado de compiler.js, y su propio onResolve (que no se
+// puede tocar) decide ANTES de que esbuild aplique su resolución de alias
+// interna si un bare specifier es "local" — y lo decide contra el ALIAS real
+// de compiler.js, que no conoce tslib/iceberg-js. Verificado empíricamente:
+// un plugin con onResolve({filter:/.*/}) que devuelve un resultado (no
+// undefined) para un specifier gana siempre sobre la opción `alias`, sin
+// importar qué contenga ese objeto. Por eso este plugin —sólo del harness,
+// nunca en compiler.js— intercepta tslib/iceberg-js ANTES en la lista de
+// plugins y los resuelve directo a disco, para que esmShResolverPlugin ni
+// siquiera llegue a verlos.
+// ===========================================================================
+function harnessExtraAliasResolverPlugin() {
+  const names = new Set(Object.keys(ALIAS_EXTRA_SOLO_HARNESS));
+  return {
+    name: 'harness-extra-alias-resolver',
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, args => {
+        if (!names.has(args.path)) return undefined;
+        return { path: ALIAS_EXTRA_SOLO_HARNESS[args.path] };
+      });
+    }
+  };
+}
+
+// ===========================================================================
 // v5 — E13: fachada de lucide-react por análisis estático real.
 // ===========================================================================
 const LUCIDE_ICONS_DIR = new URL('../node_modules/lucide-react/dist/esm/icons/', import.meta.url).pathname;
@@ -666,6 +693,7 @@ async function runBuild(filesObj, alias = ALIAS, options = {}) {
         ...extraPlugins, // v5 — E13: lucideFacadePlugin, cuando se pasa
         routerShimPluginInstrumented(),
         virtualFilesPluginInstrumented(filesObj, oidMap),
+        harnessExtraAliasResolverPlugin(), // SOLO HARNESS — ver comentario junto a su definición
         esmShResolverPluginInstrumented()
       ],
       metafile: true, // requisito nuevo 1
