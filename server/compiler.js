@@ -408,15 +408,19 @@ const ALIAS = {
   // expone cjs/umd aquí) para que esbuild trate el árbol completo como local y
   // no dispare fetch a esm.sh por cada uno. Grafo de relativos recorrido
   // completo con @babel/parser (no basta con grep: hay comentarios/strings
-  // que citan nombres de paquete sin ser imports reales). Únicos terceros que
-  // siguen resolviendo por esm.sh porque no están vendorizados: tslib (vía
-  // auth-js y functions-js) e iceberg-js (vía storage-js).
+  // que citan nombres de paquete sin ser imports reales). tslib (vía auth-js
+  // y functions-js) e iceberg-js (vía storage-js) también están vendorizados
+  // más abajo, a sus propios entries ESM.
   '@supabase/supabase-js': new URL('../node_modules/@supabase/supabase-js/dist/index.mjs', import.meta.url).pathname,
   '@supabase/auth-js': new URL('../node_modules/@supabase/auth-js/dist/module/index.js', import.meta.url).pathname,
   '@supabase/postgrest-js': new URL('../node_modules/@supabase/postgrest-js/dist/index.mjs', import.meta.url).pathname,
   '@supabase/realtime-js': new URL('../node_modules/@supabase/realtime-js/dist/module/index.js', import.meta.url).pathname,
   '@supabase/storage-js': new URL('../node_modules/@supabase/storage-js/dist/index.mjs', import.meta.url).pathname,
-  '@supabase/functions-js': new URL('../node_modules/@supabase/functions-js/dist/module/index.js', import.meta.url).pathname
+  '@supabase/functions-js': new URL('../node_modules/@supabase/functions-js/dist/module/index.js', import.meta.url).pathname,
+  // tslib/package.json → exports['.'].module = './tslib.es6.mjs'
+  // iceberg-js/package.json → exports['.'].import = './dist/index.mjs'
+  'tslib': new URL('../node_modules/tslib/tslib.es6.mjs', import.meta.url).pathname,
+  'iceberg-js': new URL('../node_modules/iceberg-js/dist/index.mjs', import.meta.url).pathname
 };
 
 // Base URL del CDN, configurable vía env para tests / mirrors
@@ -539,8 +543,9 @@ function esmShResolverPlugin() {
 // lucideFacadePlugin — fachada de lucide-react por análisis estático real.
 // Portado tal cual (sin cambios de lógica) de scripts/compilerPerfHarness.mjs
 // (E13/E13b/E13c), donde vivía como makeLucideFacadePlugin(filesObj, exportMap)
-// + buildLucideExportMap() + scanLucideImports() por separado. DEFINIDO PERO
-// NO ACTIVADO: compileFiles no lo invoca en este cambio.
+// + buildLucideExportMap() + scanLucideImports() por separado. ACTIVADO en
+// compileFiles: se invoca antes del esbuild.build y su .plugin entra primero
+// en la lista de plugins (misma posición relativa que usa el harness).
 //
 // El barrel de lucide-react (ALIAS['lucide-react']) hace
 // `export { default as Heart, default as HeartIcon, ... } from './icons/heart.js'`
@@ -998,6 +1003,8 @@ export async function compileFiles(filesObj, dbCredentials = null) {
   const startTotal = Date.now();
   const fileCount = Object.keys(filesObj).length;
 
+  const facade = lucideFacadePlugin(filesObj);
+
   try {
     const startEsbuild = Date.now();
     const result = await esbuild.build({
@@ -1028,7 +1035,7 @@ export async function compileFiles(filesObj, dbCredentials = null) {
       footer: {
         js: '})();'
       },
-      plugins: [routerShimPlugin(), virtualFilesPlugin(filesObj, oidMap), esmShResolverPlugin()],
+      plugins: [facade.plugin, routerShimPlugin(), virtualFilesPlugin(filesObj, oidMap), esmShResolverPlugin()],
       logLevel: 'silent'
     });
     const esbuildMs = Date.now() - startEsbuild;
