@@ -65,14 +65,31 @@ describe('Bloque 2 — pre-registro (e2e con LLM falso)', () => {
   );
 
   it(
-    // N4 — el registro de denegadas queda vacío al terminar: cero red saliente real.
-    'termina con el registro de denegadas vacío — cero red saliente',
+    // N4 — estas tres escrituras son comportamiento real del pipeline, descubiertas
+    // al endurecer fakeFetch en el Bloque 3 de A2; la igualdad exacta es intencional
+    // para que una cuarta escritura ponga el test rojo.
+    'deniega exactamente las 3 escrituras conocidas a Supabase, ninguna más',
     async () => {
       await runPreregistro();
 
-      expect(control.denied).toEqual([]);
+      expect(control.denied).toEqual([
+        'POST https://placeholder.supabase.co/rest/v1/forge_project_memory?on_conflict=project_id',
+        'POST https://placeholder.supabase.co/rest/v1/forge_project_memory?on_conflict=project_id',
+        'PATCH https://placeholder.supabase.co/rest/v1/forge_projects?id=eq.preregistro-test-project',
+      ]);
     },
     // N5 — timeout duro < 15s.
     15000
   );
+
+  it('deniega escrituras POST a Supabase REST', async () => {
+    await expect(
+      fetch('https://placeholder.supabase.co/rest/v1/forge_intent_log', {
+        method: 'POST',
+        body: '{}',
+      })
+    ).rejects.toThrow();
+
+    expect(control.denied.some((entry) => entry.startsWith('POST '))).toBe(true);
+  });
 });
