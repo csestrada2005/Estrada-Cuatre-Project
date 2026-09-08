@@ -89,7 +89,12 @@ export function installFakeFetch(): FakeFetchControl {
 
     // --- Supabase REST (DesignContextService) — sin filas, cae a los defaults ---
     if (url.includes('/rest/v1/')) {
-      return jsonResponse(SUPABASE_REST_EMPTY_FIXTURE);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'GET') {
+        return jsonResponse(SUPABASE_REST_EMPTY_FIXTURE);
+      }
+      denied.push(`${method} ${url}`);
+      throw new Error('[fakeFetch] escritura a Supabase denegada: ' + method + ' ' + url);
     }
 
     // --- /api/chat-forge — escalera por contenido del `system` prompt ---
