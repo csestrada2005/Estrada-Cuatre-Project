@@ -8,6 +8,7 @@ import {
   type DdlProposal,
 } from '@/utils/ddlProposalState.js';
 import { DDLApprovalButton } from './forge/DDLApprovalButton';
+import { isLastDone, getPlainEnglish, type ProgressLine } from './chat/progressSummary';
 
 /**
  * CIRUGÍA B1 — forma de un paso del plan tal como lo consume el chat.
@@ -121,49 +122,24 @@ function BuildProgress({
   lastError,
   hasPendingPlan,
 }: {
-  lines: { text: string; status: 'pending' | 'done' | 'error' }[];
+  lines: ProgressLine[];
   elapsedSeconds: number;
   isExpanded: boolean;
   onToggleExpand: () => void;
   lastError: string | null;
   hasPendingPlan: boolean;
 }) {
-  const isLastDone = lines.length > 0 && lines[lines.length - 1].status !== 'pending';
-
-  const getPlainEnglish = () => {
-    // Con un plan esperando aprobación nada se está ejecutando: las líneas de
-    // detalle describen lo que se HARÁ, no lo que se hace. Cortar aquí, antes
-    // de cualquier coincidencia por substring, evita que el panel afirme un
-    // trabajo en curso que el gate de abajo desmiente en la misma pantalla.
-    if (hasPendingPlan) return 'Esperando tu aprobación...';
-    const pending = lines.find(l => l.status === 'pending');
-    const lastLine = pending || lines[lines.length - 1];
-    if (!lastLine) return 'Working on it...';
-    const text = lastLine.text;
-    if (text === 'Planning...') return 'Figuring out what to build...';
-    if (text.includes('Creating')) return 'Writing new components...';
-    // Los verbos nuevos necesitan su rama o la cabecera cae al genérico
-    // 'Working on it...' en todo plan de modify/delete — honesto pero mudo.
-    // Parche mínimo y consciente: sigue siendo matching por substring, y muere
-    // entero cuando la línea lleve su propio `kind` (Fase 2, en catálogo).
-    if (text.includes('Updating')) return 'Updating existing files...';
-    if (text.includes('Deleting')) return 'Removing files...';
-    if (text.includes('Fixing')) return 'Fixing a small issue...';
-    if (text.includes('Modified')) return 'All done ✓';
-    return 'Working on it...';
-  };
-
   return (
     <div className="flex justify-start w-full">
       <div className="bg-background border border-border rounded-lg p-3 w-[85%]">
         <div className="flex items-center gap-2 text-sm text-foreground">
           {hasPendingPlan
             ? <Clock size={14} className="shrink-0" />
-            : isLastDone
+            : isLastDone(lines)
               ? <CheckCircle size={14} className="text-green-400 shrink-0" />
               : <Loader2 size={14} className="animate-spin shrink-0" />}
-          <span>{getPlainEnglish()}</span>
-          {!hasPendingPlan && !isLastDone && (
+          <span>{getPlainEnglish(lines, hasPendingPlan)}</span>
+          {!hasPendingPlan && !isLastDone(lines) && (
             <span className="text-gray-500 text-xs">{elapsedSeconds}s</span>
           )}
         </div>
@@ -368,10 +344,7 @@ export function ChatInterface({
   // estado propio: quien sostiene la Promise es el padre y esto es su reflejo.
   const hasPendingPlan = !!pendingPlanSteps && pendingPlanSteps.length > 0;
 
-  const [progressLines, setProgressLines] = useState<{
-    text: string;
-    status: 'pending' | 'done' | 'error';
-  }[]>([]);
+  const [progressLines, setProgressLines] = useState<ProgressLine[]>([]);
   // CIRUGÍA B2 — file_path → índice de su línea en progressLines, poblado por
   // onPlanReady. Vacío en las lanes sin plan (simple/fix) y con callers que no
   // pasan onPlanReady: ahí onProgress conserva su append de siempre.
