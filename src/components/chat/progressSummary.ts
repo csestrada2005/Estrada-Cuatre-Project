@@ -1,27 +1,38 @@
 export type ProgressLine = { text: string; status: 'pending' | 'done' | 'error' };
 
 export const isLastDone = (lines: ProgressLine[]): boolean =>
-  lines.length > 0 && lines[lines.length - 1].status !== 'pending';
+  lines.length > 0 && lines[lines.length - 1].status === 'done';
 
-export const getPlainEnglish = (lines: ProgressLine[], hasPendingPlan: boolean): string => {
+export const isLastError = (lines: ProgressLine[]): boolean =>
+  lines.length > 0 && lines[lines.length - 1].status === 'error';
+
+export const getPlainEnglish = (
+  lines: ProgressLine[],
+  hasPendingPlan: boolean,
+  currentAction?: 'create' | 'modify' | 'delete',
+  isRetrying?: boolean,
+): string => {
   // Con un plan esperando aprobación nada se está ejecutando: las líneas de
   // detalle describen lo que se HARÁ, no lo que se hace. Cortar aquí, antes
   // de cualquier coincidencia por substring, evita que el panel afirme un
   // trabajo en curso que el gate de abajo desmiente en la misma pantalla.
   if (hasPendingPlan) return 'Esperando tu aprobación...';
+  if (lines.length === 0) return 'Working on it...';
+  // El error SIEMPRE se evalúa antes que pending: cuando un plan falla a
+  // mitad de camino, las líneas 'pending' posteriores al step que falló
+  // quedan huérfanas EN MEDIO del array (nunca se marcaron 'done' ni
+  // 'error'), y .find() las encuentra antes de llegar al 'error' del final.
+  // Preguntar primero "¿la última línea es error?" ignora esas huérfanas.
+  if (isLastError(lines)) return 'Something went wrong';
+  if (isRetrying) return 'Fixing a small issue...';
   const pending = lines.find(l => l.status === 'pending');
-  const lastLine = pending || lines[lines.length - 1];
-  if (!lastLine) return 'Working on it...';
-  const text = lastLine.text;
-  if (text === 'Planning...') return 'Figuring out what to build...';
-  if (text.includes('Creating')) return 'Writing new components...';
-  // Los verbos nuevos necesitan su rama o la cabecera cae al genérico
-  // 'Working on it...' en todo plan de modify/delete — honesto pero mudo.
-  // Parche mínimo y consciente: sigue siendo matching por substring, y muere
-  // entero cuando la línea lleve su propio `kind` (Fase 2, en catálogo).
-  if (text.includes('Updating')) return 'Updating existing files...';
-  if (text.includes('Deleting')) return 'Removing files...';
-  if (text.includes('Fixing')) return 'Fixing a small issue...';
-  if (text.includes('Modified')) return 'All done ✓';
+  if (pending) {
+    if (pending.text === 'Planning...') return 'Figuring out what to build...';
+    if (currentAction === 'create') return 'Writing new components...';
+    if (currentAction === 'modify') return 'Updating existing files...';
+    if (currentAction === 'delete') return 'Removing files...';
+    return 'Working on it...';
+  }
+  if (isLastDone(lines)) return 'All done ✓';
   return 'Working on it...';
 };

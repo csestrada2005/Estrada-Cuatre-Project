@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLastDone, getPlainEnglish, type ProgressLine } from './progressSummary';
+import { isLastDone, isLastError, getPlainEnglish, type ProgressLine } from './progressSummary';
 
 describe('getPlainEnglish', () => {
   it('returns the approval message when a plan is pending', () => {
@@ -16,27 +16,22 @@ describe('getPlainEnglish', () => {
     expect(getPlainEnglish(lines, false)).toBe('Figuring out what to build...');
   });
 
-  it('returns the creating message for a Creating line', () => {
+  it('returns the creating message for a pending line with currentAction "create"', () => {
     const lines: ProgressLine[] = [{ text: 'Creating Hero.tsx', status: 'pending' }];
-    expect(getPlainEnglish(lines, false)).toBe('Writing new components...');
+    expect(getPlainEnglish(lines, false, 'create')).toBe('Writing new components...');
   });
 
-  it('returns the updating message for an Updating line', () => {
+  it('returns the updating message for a pending line with currentAction "modify"', () => {
     const lines: ProgressLine[] = [{ text: 'Updating Hero.tsx', status: 'pending' }];
-    expect(getPlainEnglish(lines, false)).toBe('Updating existing files...');
+    expect(getPlainEnglish(lines, false, 'modify')).toBe('Updating existing files...');
   });
 
-  it('returns the deleting message for a Deleting line', () => {
+  it('returns the deleting message for a pending line with currentAction "delete"', () => {
     const lines: ProgressLine[] = [{ text: 'Deleting Hero.tsx', status: 'pending' }];
-    expect(getPlainEnglish(lines, false)).toBe('Removing files...');
+    expect(getPlainEnglish(lines, false, 'delete')).toBe('Removing files...');
   });
 
-  it('returns the fixing message for a Fixing line', () => {
-    const lines: ProgressLine[] = [{ text: 'Fixing compile error (attempt 1/3)...', status: 'pending' }];
-    expect(getPlainEnglish(lines, false)).toBe('Fixing a small issue...');
-  });
-
-  it('returns the done message for a Modified line', () => {
+  it('returns the done message for a done line', () => {
     const lines: ProgressLine[] = [{ text: 'Modified Hero.tsx', status: 'done' }];
     expect(getPlainEnglish(lines, false)).toBe('All done ✓');
   });
@@ -46,18 +41,40 @@ describe('getPlainEnglish', () => {
       { text: 'Deleting Hero.tsx', status: 'pending' },
       { text: 'Creating Footer.tsx', status: 'done' },
     ];
-    expect(getPlainEnglish(lines, false)).toBe('Removing files...');
+    expect(getPlainEnglish(lines, false, 'delete')).toBe('Removing files...');
   });
 
-  // Comportamiento ACTUAL, incorrecto. El Bloque 2 invierte este aserto.
-  it('BUG: treats an error line as the last-done line', () => {
-    expect(isLastDone([{ text: 'Updating Hero.tsx', status: 'error' }])).toBe(true);
+  it('treats an error line as NOT the last-done line', () => {
+    expect(isLastDone([{ text: 'Updating Hero.tsx', status: 'error' }])).toBe(false);
   });
 
-  // Comportamiento ACTUAL, incorrecto. El Bloque 2 invierte este aserto.
-  it('BUG: reports an errored line as still "Updating existing files..."', () => {
+  it('reports an errored line as isLastError', () => {
+    expect(isLastError([{ text: 'Updating Hero.tsx', status: 'error' }])).toBe(true);
+  });
+
+  it('reports an errored line as "Something went wrong"', () => {
     expect(
       getPlainEnglish([{ text: 'Updating Hero.tsx', status: 'error' }], false)
-    ).toBe('Updating existing files...');
+    ).toBe('Something went wrong');
+  });
+
+  it('reports "Fixing a small issue..." while retrying with pending lines', () => {
+    const lines: ProgressLine[] = [{ text: 'Fixing compile error (attempt 1/3)...', status: 'pending' }];
+    expect(getPlainEnglish(lines, false, undefined, true)).toBe('Fixing a small issue...');
+  });
+
+  it('lets error win over a retry that ultimately failed', () => {
+    const lines: ProgressLine[] = [{ text: 'Fixing compile error (attempt 3/3)...', status: 'error' }];
+    expect(getPlainEnglish(lines, false, undefined, true)).toBe('Something went wrong');
+  });
+
+  it('does not let an orphaned pending line in the middle of the array hijack the header when the run ended in error', () => {
+    const lines: ProgressLine[] = [
+      { text: 'Creating Hero.tsx', status: 'done' },
+      { text: 'Updating Footer.tsx', status: 'pending' },
+      { text: 'Updating Nav.tsx', status: 'pending' },
+      { text: 'Deleting Old.tsx', status: 'error' },
+    ];
+    expect(getPlainEnglish(lines, false)).toBe('Something went wrong');
   });
 });
