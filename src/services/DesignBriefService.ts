@@ -406,9 +406,11 @@ export class DesignBriefService {
 
   /**
    * Append the verified image pool to DESIGN.md. Each row is one real Unsplash
-   * photo; the model must pick BY DESCRIPTION (never invent URLs). The author is
-   * included inline as attribution. Returns the markdown unchanged when the pool
-   * is empty (caller then keeps today's no-pool fallback behavior).
+   * photo; the model must pick BY DESCRIPTION (never invent URLs). Attribution
+   * lives in its own Credit column as a markdown link to the photographer's
+   * profile (name only when no author_link is available). Returns the markdown
+   * unchanged when the pool is empty (caller then keeps today's no-pool fallback
+   * behavior).
    */
   static appendImagePool(markdown: string, images: PoolImage[]): string {
     if (!Array.isArray(images) || images.length === 0) return markdown;
@@ -416,8 +418,13 @@ export class DesignBriefService {
     const cell = (s: string) => (s || '').replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim();
     const rows = images
       .map((img) => {
-        const attribution = img.author_name ? ` (Photo by ${cell(img.author_name)})` : '';
-        return `| ${cell(img.url)} | ${cell(img.description)}${attribution} |`;
+        const name = cell(img.author_name);
+        const credit = name
+          ? img.author_link
+            ? `[${name}](${cell(img.author_link)})`
+            : name
+          : '';
+        return `| ${cell(img.url)} | ${cell(img.description)} | ${credit} |`;
       })
       .join('\n');
 
@@ -428,8 +435,8 @@ export class DesignBriefService {
       '',
       'Use ONLY these images. Choose by description. Keep URL params as given.',
       '',
-      '| URL | Description |',
-      '| --- | --- |',
+      '| URL | Description | Credit |',
+      '| --- | --- | --- |',
       rows,
       '',
     ].join('\n');
