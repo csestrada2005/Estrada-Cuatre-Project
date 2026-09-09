@@ -17,11 +17,24 @@
 const UNSPLASH_SEARCH_URL = 'https://api.unsplash.com/search/photos';
 
 /**
+ * Append the Unsplash-required attribution UTM params to an author link,
+ * preserving any query params the link already has. Empty input stays empty
+ * — never invent a URL for an author link Unsplash didn't provide.
+ */
+function withUtmParams(authorLink) {
+  if (!authorLink) return '';
+  const url = new URL(authorLink);
+  url.searchParams.set('utm_source', 'wyrd_forge');
+  url.searchParams.set('utm_medium', 'referral');
+  return url.toString();
+}
+
+/**
  * Search a single keyword. Returns an array of { id, value } candidates.
  * A per-request AbortController enforces the timeout. Any error is swallowed
  * (returns []) so one bad keyword never sinks the whole search.
  *
- * @returns {Promise<Array<{ id: string, value: { url: string, description: string, author_name: string, author_link: string } }>>}
+ * @returns {Promise<Array<{ id: string, value: { url: string, description: string, author_name: string, author_link: string, download_location: string } }>>}
  */
 async function searchOneKeyword(keyword, { accessKey, fetchImpl, timeoutMs, perPage }) {
   const url = new URL(UNSPLASH_SEARCH_URL);
@@ -51,7 +64,8 @@ async function searchOneKeyword(keyword, { accessKey, fetchImpl, timeoutMs, perP
           // keyword itself so the description column is never empty.
           description: r.alt_description ?? r.description ?? keyword,
           author_name: r.user?.name ?? 'Unknown',
-          author_link: r.user?.links?.html ?? '',
+          author_link: withUtmParams(r.user?.links?.html ?? ''),
+          download_location: r.links?.download_location ?? '',
         },
       }));
   } catch {
@@ -72,7 +86,7 @@ async function searchOneKeyword(keyword, { accessKey, fetchImpl, timeoutMs, perP
  * @param {number}   [opts.timeoutMs=5000]    per-request timeout
  * @param {number}   [opts.perPage=4]         results requested per keyword
  * @param {number}   [opts.maxItems=12]       hard cap on returned images
- * @returns {Promise<{ images: Array<{ url: string, description: string, author_name: string, author_link: string }> }>}
+ * @returns {Promise<{ images: Array<{ url: string, description: string, author_name: string, author_link: string, download_location: string }> }>}
  */
 export async function searchUnsplash({
   keywords,

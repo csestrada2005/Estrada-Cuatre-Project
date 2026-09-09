@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { searchUnsplash } from './unsplash.js';
 
 /** Build a fake Unsplash photo result. */
-function photo(id, { url, alt, name, link } = {}) {
+function photo(id, { url, alt, name, link, downloadLocation } = {}) {
   return {
     id,
     urls: { regular: url ?? `https://images.unsplash.com/photo-${id}?w=1080` },
     alt_description: alt ?? `alt for ${id}`,
     description: null,
     user: { name: name ?? `Author ${id}`, links: { html: link ?? `https://unsplash.com/@${id}` } },
+    links: { download_location: downloadLocation ?? `https://api.unsplash.com/photos/${id}/download` },
   };
 }
 
@@ -141,4 +142,68 @@ test('one bad keyword does not sink the others', async () => {
 
   assert.equal(images.length, 1);
   assert.equal(images[0].author_name, 'Author good');
+});
+
+test('author_link receives utm_source and utm_medium', async () => {
+  const fetchImpl = fakeFetch({
+    bread: [photo('a', { link: 'https://unsplash.com/@a' })],
+  });
+
+  const { images } = await searchUnsplash({ keywords: ['bread'], accessKey: 'test-key', fetchImpl });
+
+  const link = new URL(images[0].author_link);
+  assert.equal(link.searchParams.get('utm_source'), 'wyrd_forge');
+  assert.equal(link.searchParams.get('utm_medium'), 'referral');
+});
+
+test('empty author_link stays empty, no invented URL', async () => {
+  const fetchImpl = fakeFetch({
+    bread: [photo('a', { link: '' })],
+  });
+
+  const { images } = await searchUnsplash({ keywords: ['bread'], accessKey: 'test-key', fetchImpl });
+
+  assert.equal(images[0].author_link, '');
+});
+
+test('author_link with existing query params keeps them and adds utm', async () => {
+  const fetchImpl = fakeFetch({
+    bread: [photo('a', { link: 'https://unsplash.com/@a?ref=abc' })],
+  });
+
+  const { images } = await searchUnsplash({ keywords: ['bread'], accessKey: 'test-key', fetchImpl });
+
+  const link = new URL(images[0].author_link);
+  assert.equal(link.searchParams.get('ref'), 'abc');
+  assert.equal(link.searchParams.get('utm_source'), 'wyrd_forge');
+  assert.equal(link.searchParams.get('utm_medium'), 'referral');
+});
+
+test('download_location is propagated when present', async () => {
+  const fetchImpl = fakeFetch({
+    bread: [photo('a', { downloadLocation: 'https://api.unsplash.com/photos/a/download' })],
+  });
+
+  const { images } = await searchUnsplash({ keywords: ['bread'], accessKey: 'test-key', fetchImpl });
+
+  assert.equal(images[0].download_location, 'https://api.unsplash.com/photos/a/download');
+});
+
+test('download_location missing → empty string, no exception', async () => {
+  const fetchImpl = fakeFetch({
+    bread: [
+      {
+        id: 'a',
+        urls: { regular: 'https://images.unsplash.com/a' },
+        alt_description: 'alt',
+        description: null,
+        user: { name: 'Jo', links: { html: 'https://unsplash.com/@jo' } },
+        // no `links.download_location`, and no `links` at all
+      },
+    ],
+  });
+
+  const { images } = await searchUnsplash({ keywords: ['bread'], accessKey: 'test-key', fetchImpl });
+
+  assert.equal(images[0].download_location, '');
 });
