@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Bot, Loader2, CheckCircle, ChevronDown, ChevronUp, Wand2, Square, Clock } from 'lucide-react';
+import { Send, Bot, Loader2, CheckCircle, ChevronDown, ChevronUp, Wand2, Square, Clock, XCircle } from 'lucide-react';
 import {
   ddlProposedMark,
   resolveDdlProposals,
@@ -8,7 +8,7 @@ import {
   type DdlProposal,
 } from '@/utils/ddlProposalState.js';
 import { DDLApprovalButton } from './forge/DDLApprovalButton';
-import { isLastDone, getPlainEnglish, type ProgressLine } from './chat/progressSummary';
+import { isLastDone, isLastError, getPlainEnglish, type ProgressLine } from './chat/progressSummary';
 
 /**
  * CIRUGÍA B1 — forma de un paso del plan tal como lo consume el chat.
@@ -121,6 +121,8 @@ function BuildProgress({
   onToggleExpand,
   lastError,
   hasPendingPlan,
+  currentAction,
+  isRetrying,
 }: {
   lines: ProgressLine[];
   elapsedSeconds: number;
@@ -128,6 +130,8 @@ function BuildProgress({
   onToggleExpand: () => void;
   lastError: string | null;
   hasPendingPlan: boolean;
+  currentAction?: 'create' | 'modify' | 'delete';
+  isRetrying?: boolean;
 }) {
   return (
     <div className="flex justify-start w-full">
@@ -135,11 +139,13 @@ function BuildProgress({
         <div className="flex items-center gap-2 text-sm text-foreground">
           {hasPendingPlan
             ? <Clock size={14} className="shrink-0" />
-            : isLastDone(lines)
-              ? <CheckCircle size={14} className="text-green-400 shrink-0" />
-              : <Loader2 size={14} className="animate-spin shrink-0" />}
-          <span>{getPlainEnglish(lines, hasPendingPlan)}</span>
-          {!hasPendingPlan && !isLastDone(lines) && (
+            : isLastError(lines)
+              ? <XCircle size={14} className="text-red-400 shrink-0" />
+              : isLastDone(lines)
+                ? <CheckCircle size={14} className="text-green-400 shrink-0" />
+                : <Loader2 size={14} className="animate-spin shrink-0" />}
+          <span>{getPlainEnglish(lines, hasPendingPlan, currentAction, isRetrying)}</span>
+          {!hasPendingPlan && !isLastDone(lines) && !isLastError(lines) && (
             <span className="text-gray-500 text-xs">{elapsedSeconds}s</span>
           )}
         </div>
@@ -351,6 +357,9 @@ export function ChatInterface({
   // El `action` viaja junto al índice para que el verbo de la línea salga del
   // plan sin ampliar la firma de onProgress (contrato con StudioEngine intacto).
   const planLineIndexRef = useRef<Map<string, { index: number; action: ChatPlanStep['action'] }>>(new Map());
+  // CIRUGÍA FASE 2 B2 — reintento de compile-fix, leído por la cabecera para
+  // distinguir "Fixing a small issue..." de un pending genérico.
+  const isRetryingRef = useRef(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
   const [buildLogExpanded, setBuildLogExpanded] = useState(false);
@@ -582,6 +591,7 @@ export function ChatInterface({
           });
         },
         (attempt, _errorMsg) => {
+          isRetryingRef.current = true;
           setProgressLines(prev => {
             const next = [...prev];
             if (next.length > 0 && next[next.length - 1].status === 'pending') {
@@ -614,6 +624,7 @@ export function ChatInterface({
       // CIRUGÍA B2 — el mapa del plan muere con el run: la próxima corrida vuelve
       // a poblarlo (o no, si su lane no tiene plan).
       planLineIndexRef.current = new Map();
+      isRetryingRef.current = false;
 
       if (result.success) {
         setProgressLines([{ text: `Modified ${result.modifiedFiles.length} files in ${elapsedSeconds}s`, status: 'done' }]);
@@ -667,6 +678,7 @@ export function ChatInterface({
     } catch (error) {
       clearInterval(intervalId);
       planLineIndexRef.current = new Map();
+      isRetryingRef.current = false;
       console.error('Error in chat:', error);
       setProgressLines(prev => {
         const next = [...prev];
@@ -728,6 +740,18 @@ export function ChatInterface({
     refocusAfterRejectRef.current = true;
     onRejectPlan?.();
   };
+
+  // CIRUGÍA FASE 2 B2 — el verbo de la cabecera para el step EN CURSO, leído
+  // del mismo mapa que puebla onPlanReady. Vacío en lanes simple/fix (sin
+  // plan) → undefined, y la cabecera cae al genérico. Decisión tomada.
+  const currentAction = useMemo(() => {
+    const idx = progressLines.findIndex(l => l.status === 'pending');
+    if (idx === -1) return undefined;
+    for (const entry of planLineIndexRef.current.values()) {
+      if (entry.index === idx) return entry.action;
+    }
+    return undefined;
+  }, [progressLines]);
 
   // CIRUGÍA 2 — el estado de cada propuesta de DDL, DERIVADO del historial.
   //
@@ -874,6 +898,8 @@ export function ChatInterface({
             onToggleExpand={() => setBuildLogExpanded(v => !v)}
             lastError={lastError}
             hasPendingPlan={hasPendingPlan}
+            currentAction={currentAction}
+            isRetrying={isRetryingRef.current}
           />
         )}
         {/* CIRUGÍA B3 — el gate va justo DEBAJO de las líneas del plan: el
