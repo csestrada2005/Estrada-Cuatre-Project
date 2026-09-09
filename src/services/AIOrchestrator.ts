@@ -545,26 +545,24 @@ function packageNameFromSpecifier(spec: string): string | null {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function trackAICall(projectId: string) {
+async function trackAICall(projectId: string): Promise<void> {
   const supabase = SupabaseService.getInstance().client;
-  (async () => {
-    try {
-      const { data } = await supabase
-        .from('forge_projects')
-        .select('ai_call_count')
-        .eq('id', projectId)
-        .single();
-      await supabase
-        .from('forge_projects')
-        .update({
-          ai_call_count: (data?.ai_call_count ?? 0) + 1,
-          last_active_at: new Date().toISOString(),
-        })
-        .eq('id', projectId);
-    } catch {
-      // non-critical
-    }
-  })();
+  try {
+    const { data } = await supabase
+      .from('forge_projects')
+      .select('ai_call_count')
+      .eq('id', projectId)
+      .single();
+    await supabase
+      .from('forge_projects')
+      .update({
+        ai_call_count: (data?.ai_call_count ?? 0) + 1,
+        last_active_at: new Date().toISOString(),
+      })
+      .eq('id', projectId);
+  } catch {
+    // non-critical
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2036,7 +2034,6 @@ export class AIOrchestrator {
 
       // Update memory and record success
       if (projectId) {
-        trackAICall(projectId);
         // Deleted paths go in too. Ya NO porque la lista los borre del registro
         // —updateAfterChange recomputa cada campo entero desde `memoryFiles` y
         // la lista no decide nada—, sino porque `memoryFiles` es el mapa
@@ -2048,6 +2045,20 @@ export class AIOrchestrator {
           action: input.slice(0, 120),
           outcome: 'success',
         });
+        // trackAICall va al final, no antes, de las dos escrituras de memoria
+        // de arriba, y ahora SE LE HACE AWAIT. Antes era fire-and-forget: su
+        // PATCH interno a forge_projects corría en una carrera de microtasks
+        // contra los dos await secuenciales de encima, sin ninguna garantía de
+        // orden ni de haber terminado cuando el pipeline devuelve. Casi
+        // siempre resolvía después de ambos (P,P,PATCH) —lo que el test de las
+        // 3 escrituras selló— pero un cambio de timing ajeno al pipeline
+        // (versión de dependencia, engine) bastaba para voltear el resultado
+        // de la carrera (P,PATCH,P) sin tocar una sola línea de este archivo.
+        // trackAICall sigue sin poder tumbar el pipeline (su propio try/catch
+        // absorbe cualquier fallo, "non-critical"), así que este await sólo
+        // paga una vuelta de red más antes de responder al usuario, a cambio
+        // de que el orden deje de ser una apuesta.
+        await trackAICall(projectId);
         await this.logIntent({
           projectId,
           // PIEZA 3 — telemetría de fallo parcial: mismo patrón que
